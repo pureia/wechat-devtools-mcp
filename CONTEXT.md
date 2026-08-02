@@ -1,16 +1,37 @@
 # WeChat DevTools MCP
 
-本项目的领域上下文：通过 MCP 协议，把微信开发者工具的小程序自动化能力暴露给 MCP 客户端（LLM 应用），由本地 MCP 服务器统一管理开发者工具连接生命周期与小程序操作。
+将微信开发者工具中运行的小程序自动化能力封装为 MCP 工具（stdio 传输）的服务器。
+一个进程同一时刻维护一个小程序连接；页面与元素不直接暴露，而是通过"句柄"引用。
 
 ## Language
 
-**MCP 服务器（MCP Server）**:
-通过标准输入输出（stdio）与 MCP 客户端通信的本地进程，是 LLM 与微信开发者工具之间的桥梁。
-_Avoid_: 服务端、后台服务
+**连接 (connection)**:
+进程与微信开发者工具自动化端口之间的 WebSocket 会话，由 launch 或 connect 建立。
+_Avoid_: 会话、实例
 
-**MCP 工具（Tool）**:
-注册在 MCP 服务器上、可被 LLM 调用的具名能力单元，每个工具对应一次自动化操作（如打开页面、点击元素）。
+**句柄 (handle)**:
+对 Page 或 Element 实例的进程内引用，对外以 page_id / element_id 字符串暴露；后续操作凭 id 从会话状态取回实例。
+_Avoid_: 引用、指针
+
+**page_id**:
+页面的句柄 id，形如 page_1；由 current_page / page_stack / 导航类工具注册并返回。
+_Avoid_: pageId、页面 id
+
+**element_id**:
+元素的句柄 id，形如 el_1；由 page_query / page_query_all / element_query 注册并返回。
+_Avoid_: elId、元素 id
+
+**工具 (tool)**:
+暴露给 MCP 客户端的调用面，按能力域命名：element_*（元素级）、page_*（页面级），其余为小程序级或生命周期级。
 _Avoid_: 接口、命令
+
+**会话状态 (session state)**:
+进程内的连接、句柄 Map、递增序号与运行日志集合；disconnect / close 会整体重置。
+_Avoid_: 全局变量、store
+
+**MCP 服务器（MCP Server）**:
+通过 stdio 与 MCP 客户端通信的本地进程，是 LLM 与微信开发者工具之间的桥梁。
+_Avoid_: 服务端、后台服务
 
 **自动化（Automation）**:
 使用 SDK 驱动微信开发者工具对小程序进行程序化操作的过程，与「编译上传」的 CI 场景相对。

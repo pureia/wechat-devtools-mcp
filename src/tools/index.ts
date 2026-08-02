@@ -1,12 +1,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerPageTools } from './pages.js';
+import { registerElementTools } from './elements.js';
+import { registerMiniProgramTools } from './mini-program.js';
+import { registerHandleTools, registerLifecycleTools } from './lifecycle.js';
 
 /**
- * 注册全部 MCP 工具（占位）。
- *
- * 后续填充：逐个调用 server.registerTool(...)，
- * 将 wechat 封装层暴露的 automator 能力注册为 MCP 工具。
+ * 注册全部 MCP 工具（按能力域拆分，聚合在此装配）。
  */
 export function registerTools(server: McpServer): void {
-  void server;
-  // TODO: 后续填充
+  registerLifecycleTools(server);
+  registerMiniProgramTools(server);
+  registerPageTools(server);
+  registerElementTools(server);
+  registerHandleTools(server);
 }
