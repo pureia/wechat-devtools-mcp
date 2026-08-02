@@ -15,9 +15,12 @@ declare module 'miniprogram-automator' {
     query?: Record<string, unknown>;
     $: (selector: string) => Promise<Element | null>;
     $$: (selector: string) => Promise<Element[]>;
+    getElementByXpath: (selector: string) => Promise<Element | null>;
+    getElementsByXpath: (selector: string) => Promise<Element[]>;
     waitFor: (condition: number | string) => Promise<void>;
     data: (path?: string) => Promise<unknown>;
     setData: (data: Record<string, unknown>) => Promise<void>;
+    callMethod: (method: string, ...args: unknown[]) => Promise<unknown>;
     size: () => Promise<{ width: number; height: number }>;
     scrollTop: () => Promise<number>;
   }
@@ -70,13 +73,13 @@ declare module 'miniprogram-automator' {
   }
 
   export interface MiniProgram {
-    currentPage: () => Promise<Page>;
+    currentPage: () => Promise<Page | undefined>;
     pageStack: () => Promise<Page[]>;
-    navigateTo: (url: string) => Promise<Page>;
-    redirectTo: (url: string) => Promise<Page>;
-    navigateBack: () => Promise<Page>;
-    reLaunch: (url: string) => Promise<Page>;
-    switchTab: (url: string) => Promise<Page>;
+    navigateTo: (url: string) => Promise<Page | undefined>;
+    redirectTo: (url: string) => Promise<Page | undefined>;
+    navigateBack: () => Promise<Page | undefined>;
+    reLaunch: (url: string) => Promise<Page | undefined>;
+    switchTab: (url: string) => Promise<Page | undefined>;
     systemInfo: () => Promise<Record<string, unknown>>;
     callWxMethod: (method: string, ...args: unknown[]) => Promise<unknown>;
     mockWxMethod: (method: string, result: unknown) => Promise<void>;

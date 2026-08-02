@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { wrap } from '../wechat/utils.js';
-import { registerElement, requirePage } from '../wechat/session.js';
+import { registerElement, registerElements, requirePage } from '../wechat/session.js';
 
 export function registerPageTools(server: McpServer): void {
   // ---------------- 页面级操作 ----------------
@@ -24,7 +24,7 @@ export function registerPageTools(server: McpServer): void {
   server.registerTool(
     'page_query_all',
     {
-      description: '在页面中按 WXSS 选择器查询所有匹配元素（返回 element_id 句柄数组）',
+      description: '在页面中按 WXSS 选择器查询所有匹配元素（返回 element_id 句柄数组；超 1000 个时仅末尾 1000 个句柄可用）',
       inputSchema: {
         page_id: z.string(),
         selector: z.string().describe('WXSS 选择器'),
@@ -33,7 +33,55 @@ export function registerPageTools(server: McpServer): void {
     wrap(async ({ page_id, selector }: { page_id: string; selector: string }) => {
       const page = requirePage(page_id);
       const els = await page.$$(selector);
-      return { count: els.length, elements: els.map((el) => registerElement(el)) };
+      return { count: els.length, elements: registerElements(els) };
+    })
+  );
+
+  server.registerTool(
+    'page_query_xpath',
+    {
+      description: '在页面中按 XPath 表达式查询首个匹配元素（返回 element_id 句柄）',
+      inputSchema: {
+        page_id: z.string(),
+        xpath: z.string().describe('XPath 表达式（选择元素节点），如 //view[contains(@class, "header")]'),
+      },
+    },
+    wrap(async ({ page_id, xpath }: { page_id: string; xpath: string }) => {
+      const page = requirePage(page_id);
+      const el = await page.getElementByXpath(xpath);
+      return el ? registerElement(el) : { element_id: null, message: '未找到匹配元素' };
+    })
+  );
+
+  server.registerTool(
+    'page_query_xpath_all',
+    {
+      description: '在页面中按 XPath 表达式查询所有匹配元素（返回 element_id 句柄数组；超 1000 个时仅末尾 1000 个句柄可用）',
+      inputSchema: {
+        page_id: z.string(),
+        xpath: z.string().describe('XPath 表达式'),
+      },
+    },
+    wrap(async ({ page_id, xpath }: { page_id: string; xpath: string }) => {
+      const page = requirePage(page_id);
+      const els = await page.getElementsByXpath(xpath);
+      return { count: els.length, elements: registerElements(els) };
+    })
+  );
+
+  server.registerTool(
+    'page_call_method',
+    {
+      description: '调用页面实例方法（含 onPullDownRefresh 等事件方法与自定义方法）',
+      inputSchema: {
+        page_id: z.string(),
+        method: z.string().describe('页面实例方法名，如 onPullDownRefresh / 自定义方法'),
+        args: z.array(z.any()).optional().describe('方法参数'),
+      },
+    },
+    wrap(async ({ page_id, method, args }: { page_id: string; method: string; args?: unknown[] }) => {
+      const page = requirePage(page_id);
+      return { result: await page.callMethod(method, ...(args ?? [])) };
     })
   );
 

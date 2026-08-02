@@ -160,13 +160,26 @@ export function registerLifecycleTools(server: McpServer): void {
       if (!mp) {
         return { connected: false, mcp_version: SERVER_VERSION, message: '尚未连接，请调用 launch 或 connect' };
       }
-      const stack = await mp.pageStack();
-      return {
-        connected: true,
-        mcp_version: SERVER_VERSION,
-        page_count: stack.length,
-        pages: stack.map((p) => ({ path: p.path, query: p.query ?? {} })),
-      };
+      try {
+        const stack = await mp.pageStack();
+        return {
+          connected: true,
+          mcp_version: SERVER_VERSION,
+          page_count: stack.length,
+          pages: stack.map((p) => ({ path: p.path, query: p.query ?? {} })),
+        };
+      }
+      catch (err) {
+        // 连接可能已失效（开发者工具被关闭/崩溃）：报告状态而不是抛错
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          connected: false,
+          mcp_version: SERVER_VERSION,
+          message: '连接已失效',
+          reason: message,
+          hint: '请调用 close / disconnect 后重新 launch / connect，或重启 MCP 服务器',
+        };
+      }
     })
   );
 

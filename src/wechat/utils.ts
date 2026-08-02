@@ -1,12 +1,14 @@
 import type { MiniProgram, Page } from 'miniprogram-automator';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpError } from './errors.js';
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function ok(data: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  const text = data === undefined ? '' : JSON.stringify(data, null, 2);
+  return { content: [{ type: 'text', text }] };
 }
 
 export function fail(err: unknown): CallToolResult {
@@ -68,7 +70,7 @@ export function wrap<TArgs>(
 export async function safeCurrentPage(mp: MiniProgram, timeoutMs = 30000): Promise<Page> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const page = await Promise.race([
       mp.currentPage(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(
@@ -77,6 +79,10 @@ export async function safeCurrentPage(mp: MiniProgram, timeoutMs = 30000): Promi
         );
       }),
     ]);
+    if (!page) {
+      throw new McpError('INVALID_PAGE', '未获取到当前页面实例', '请确认小程序已在开发者工具中编译运行');
+    }
+    return page;
   }
   finally {
     clearTimeout(timer);

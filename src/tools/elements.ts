@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { wrap } from '../wechat/utils.js';
-import { registerElement, requireElement } from '../wechat/session.js';
+import { registerElement, registerElements, requireElement } from '../wechat/session.js';
 
 export function registerElementTools(server: McpServer): void {
   // ---------------- 元素级操作 ----------------
@@ -24,7 +24,7 @@ export function registerElementTools(server: McpServer): void {
   server.registerTool(
     'element_query_all',
     {
-      description: '在元素内按 WXSS 选择器查询所有匹配子元素',
+      description: '在元素内按 WXSS 选择器查询所有匹配子元素（返回 element_id 句柄数组；超 1000 个时仅末尾 1000 个句柄可用）',
       inputSchema: {
         element_id: z.string(),
         selector: z.string().describe('WXSS 选择器'),
@@ -33,7 +33,7 @@ export function registerElementTools(server: McpServer): void {
     wrap(async ({ element_id, selector }: { element_id: string; selector: string }) => {
       const el = requireElement(element_id);
       const els = await el.$$(selector);
-      return { count: els.length, elements: els.map((child) => registerElement(child)) };
+      return { count: els.length, elements: registerElements(els) };
     })
   );
 
