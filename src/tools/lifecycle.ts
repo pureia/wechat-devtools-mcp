@@ -1,6 +1,7 @@
 import type { MiniProgram } from 'miniprogram-automator';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { cliOptions } from '../config.js';
 import { McpError } from '../wechat/errors.js';
 import { automator } from '../wechat/automator.js';
 import { SERVER_VERSION } from '../wechat/version.js';
@@ -31,34 +32,37 @@ interface LaunchArgs {
 
 export function registerLifecycleTools(server: McpServer): void {
   // ---------------- 连接与生命周期 ----------------
-  server.tool(
+  server.registerTool(
     'launch',
-    '启动微信开发者工具并连接小程序（支持项目路径、cli 路径、端口、票据等参数）',
     {
-      projectPath: z
-        .string()
-        .optional()
-        .describe('小程序项目绝对路径（uni-app 项目需指向编译产物 unpackage/dist/build/mp-weixin），缺省时自动探测当前工作区'),
-      cliPath: z
-        .string()
-        .optional()
-        .describe('微信开发者工具 cli 绝对路径，缺省时自动探测默认安装位置，Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat'),
-      timeout: z.number().int().positive().optional().describe('启动最长等待时间(ms)，默认 30000'),
-      port: z.number().int().positive().optional().describe('自动化 WebSocket 端口号'),
-      account: z.string().optional().describe('用户 openid，用于多账号调试'),
-      ticket: z.string().optional().describe('开发者工具登录票据'),
-      trustProject: z
-        .boolean()
-        .optional()
-        .describe('自动信任项目（避免首次打开弹信任对话框阻塞编译），建议设为 true'),
+      description: '启动微信开发者工具并连接小程序（支持项目路径、cli 路径、端口、票据等参数）',
+      inputSchema: {
+        projectPath: z
+          .string()
+          .optional()
+          .describe('小程序项目绝对路径（uni-app 项目需指向编译产物 unpackage/dist/build/mp-weixin），缺省时自动探测当前工作区'),
+        cliPath: z
+          .string()
+          .optional()
+          .describe('微信开发者工具 cli 绝对路径，缺省时自动探测默认安装位置，Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat'),
+        timeout: z.number().int().positive().optional().describe('启动最长等待时间(ms)，默认 30000'),
+        port: z.number().int().positive().optional().describe('自动化 WebSocket 端口号'),
+        account: z.string().optional().describe('用户 openid，用于多账号调试'),
+        ticket: z.string().optional().describe('开发者工具登录票据'),
+        trustProject: z
+          .boolean()
+          .optional()
+          .describe('自动信任项目（避免首次打开弹信任对话框阻塞编译），建议设为 true'),
+      },
     },
     wrap(async (args: LaunchArgs) => {
       if (hasMiniProgram() || isConnecting()) {
         throw new Error('已存在连接，请先调用 close 或 disconnect 后再 launch');
       }
+      // 参数优先级：工具参数 > 命令行参数 > 自动探测
       let { projectPath } = args;
       if (!projectPath) {
-        const discovered = await discoverProjectPath();
+        const discovered = cliOptions.projectPath || (await discoverProjectPath());
         if (!discovered) {
           throw new McpError(
             'INVALID_PROJECT',
@@ -71,7 +75,17 @@ export function registerLifecycleTools(server: McpServer): void {
       setConnecting(true);
       let mp: MiniProgram | null = null;
       try {
-        mp = await launchMiniProgram({ ...args, projectPath });
+        const launchArgs = {
+          ...cliOptions,
+          projectPath,
+          ...(args.cliPath !== undefined && { cliPath: args.cliPath }),
+          ...(args.timeout !== undefined && { timeout: args.timeout }),
+          ...(args.port !== undefined && { port: args.port }),
+          ...(args.account !== undefined && { account: args.account }),
+          ...(args.ticket !== undefined && { ticket: args.ticket }),
+          ...(args.trustProject !== undefined && { trustProject: args.trustProject }),
+        };
+        mp = await launchMiniProgram(launchArgs);
         registerEventHandlers(mp);
         const page = await safeCurrentPage(mp);
         // 确认连接可用后才置为全局连接，避免 safeCurrentPage 失败时残留脏状态
@@ -95,20 +109,26 @@ export function registerLifecycleTools(server: McpServer): void {
     })
   );
 
-  server.tool(
+  server.registerTool(
     'connect',
-    '连接到已在微信开发者工具中运行的小程序（需提供自动化 WebSocket 地址）',
     {
-      wsEndpoint: z.string().describe('开发者工具自动化 WebSocket 地址，如 ws://127.0.0.1:9420'),
+      description: '连接到已在微信开发者工具中运行的小程序（缺省连接本机 --port 端口）',
+      inputSchema: {
+        wsEndpoint: z
+          .string()
+          .optional()
+          .describe('开发者工具自动化 WebSocket 地址（如 ws://127.0.0.1:9420），缺省时使用 --port 指定的端口'),
+      },
     },
-    wrap(async ({ wsEndpoint }: { wsEndpoint: string }) => {
+    wrap(async ({ wsEndpoint }: { wsEndpoint?: string }) => {
       if (hasMiniProgram() || isConnecting()) {
         throw new Error('已存在连接，请先调用 close 或 disconnect 后再 connect');
       }
       setConnecting(true);
       let mp: MiniProgram | null = null;
       try {
-        mp = await automator.connect({ wsEndpoint });
+        const endpoint = wsEndpoint ?? `ws://127.0.0.1:${cliOptions.port ?? 9420}`;
+        mp = await automator.connect({ wsEndpoint: endpoint });
         registerEventHandlers(mp);
         const page = await safeCurrentPage(mp);
         // 确认连接可用后才置为全局连接，避免 safeCurrentPage 失败时残留脏状态
@@ -132,10 +152,9 @@ export function registerLifecycleTools(server: McpServer): void {
     })
   );
 
-  server.tool(
+  server.registerTool(
     'status',
-    '查询当前连接状态与页面栈信息',
-    {},
+    { description: '查询当前连接状态与页面栈信息' },
     wrap(async () => {
       const mp = getMiniProgram();
       if (!mp) {
@@ -151,10 +170,9 @@ export function registerLifecycleTools(server: McpServer): void {
     })
   );
 
-  server.tool(
+  server.registerTool(
     'disconnect',
-    '断开小程序连接（开发者工具窗口保持打开）',
-    {},
+    { description: '断开小程序连接（开发者工具窗口保持打开）' },
     wrap(async () => {
       const mp = requireMiniProgram();
       try {
@@ -167,10 +185,9 @@ export function registerLifecycleTools(server: McpServer): void {
     })
   );
 
-  server.tool(
+  server.registerTool(
     'close',
-    '断开连接并关闭开发者工具中的项目窗口',
-    {},
+    { description: '断开连接并关闭开发者工具中的项目窗口' },
     wrap(async () => {
       const mp = requireMiniProgram();
       try {
@@ -186,14 +203,16 @@ export function registerLifecycleTools(server: McpServer): void {
 
 export function registerHandleTools(server: McpServer): void {
   // ---------------- 句柄清理 ----------------
-  server.tool(
+  server.registerTool(
     'release_handles',
-    '清理缓存的 page / element 句柄，防止句柄无限增长',
     {
-      scope: z
-        .enum(['elements', 'pages', 'all'])
-        .optional()
-        .describe('清理句柄范围：elements 仅清元素、pages 仅清页面、all 全部清空，默认 all'),
+      description: '清理缓存的 page / element 句柄，防止句柄无限增长',
+      inputSchema: {
+        scope: z
+          .enum(['elements', 'pages', 'all'])
+          .optional()
+          .describe('清理句柄范围：elements 仅清元素、pages 仅清页面、all 全部清空，默认 all'),
+      },
     },
     wrap(async ({ scope }: { scope?: 'elements' | 'pages' | 'all' }) => {
       clearHandles(scope ?? 'all');

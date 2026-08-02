@@ -1,15 +1,19 @@
 {
   "name": "@purea/wechat-devtools-mcp",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "微信小程序自动化 miniprogram-automator 的本地 MCP 服务器，将 SDK API 封装为 MCP 工具",
   "license": "MIT",
   "bin": {
-    "wechat-devtools-mcp": "./dist/index.js"
+    "wechat-devtools-mcp": "dist/index.js"
   },
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -19,7 +23,8 @@
     "lint": "eslint .",
     "dev": "tsdown --watch",
     "start": "node dist/index.js",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "prepublishOnly": "pnpm run typecheck && pnpm run build && pnpm run smoke"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
