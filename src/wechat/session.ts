@@ -74,28 +74,30 @@ export function registerPage(page: Page | undefined): PageHandle {
   return { page_id: id, path: page.path, query: page.query ?? {} };
 }
 
-export function registerElement(el: Element | undefined | null): ElementHandle {
-  if (!el) {
-    throw new McpError('INVALID_ELEMENT', '未获取到元素实例', '可重新调用 page_query / page_query_all 获取有效句柄');
-  }
-  evictOldest(elements, MAX_ELEMENT_HANDLES);
+function registerElementRaw(el: Element): ElementHandle {
   const id = `el_${++elementSeq}`;
   elements.set(id, el);
   return { element_id: id, tagName: el.tagName };
 }
 
-export function registerElements(els: Element[]): ElementHandle[] {
-  // 批量注册前一次性腾出所需空间，避免本批次靠前句柄被末尾注册立即 FIFO 淘汰
-  const overflow = els.length - (MAX_ELEMENT_HANDLES - elements.size);
-  if (overflow > 0) {
-    let removed = 0;
-    for (const id of elements.keys()) {
-      if (removed >= overflow) break;
-      elements.delete(id);
-      removed++;
-    }
+export function registerElement(el: Element | undefined | null): ElementHandle {
+  if (!el) {
+    throw new McpError('INVALID_ELEMENT', '未获取到元素实例', '可重新调用 page_query / page_query_all 获取有效句柄');
   }
-  return els.map((el) => registerElement(el));
+  evictOldest(elements, MAX_ELEMENT_HANDLES);
+  return registerElementRaw(el);
+}
+
+export function registerElements(els: Element[]): ElementHandle[] {
+  // 先全部写入，再统一按 FIFO 淘汰最旧句柄；
+  // 避免逐个调用 registerElement 时其内部淘汰逻辑误删本批次开头的句柄
+  const handles = els.map(registerElementRaw);
+  while (elements.size > MAX_ELEMENT_HANDLES) {
+    const oldest = elements.keys().next().value;
+    if (oldest === undefined) break;
+    elements.delete(oldest);
+  }
+  return handles;
 }
 
 export function registerEventHandlers(mp: MiniProgram): void {
