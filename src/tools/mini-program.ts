@@ -191,7 +191,7 @@ export function registerMiniProgramTools(server: McpServer): void {
   server.registerTool(
     'screenshot',
     {
-      description: '对小程序当前页面截图（传 path 保存到文件，否则返回图片 base64）',
+      description: '对小程序当前页面截图（传 path 保存到文件，否则返回图片 base64；截图可能达数 MB，建议传 path 保存文件，避免大 payload 超出客户端消息限制）',
       inputSchema: {
         path: z.string().optional().describe('图片保存路径，不传则返回图片 base64 编码'),
       },
@@ -208,7 +208,7 @@ export function registerMiniProgramTools(server: McpServer): void {
 
   server.registerTool(
     'get_ticket',
-    { description: '获取开发者工具登录票据（有效期两小时）' },
+    { description: '获取开发者工具登录票据（有效期两小时；返回结构依赖 IDE，可能为字符串或 {ticket: ...} 嵌套对象，以实际返回为准）' },
     wrap(async () => {
       const mp = requireMiniProgram();
       return { result: await mp.getTicket() };

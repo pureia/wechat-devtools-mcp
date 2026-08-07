@@ -21,8 +21,8 @@ declare module 'miniprogram-automator' {
     data: (path?: string) => Promise<unknown>;
     setData: (data: Record<string, unknown>) => Promise<void>;
     callMethod: (method: string, ...args: unknown[]) => Promise<unknown>;
-    size: () => Promise<{ width: number; height: number }>;
-    scrollTop: () => Promise<number>;
+    size: () => Promise<{ width: string; height: string }>;
+    scrollTop: () => Promise<string | string[]>;
   }
 
   export interface Element {
@@ -34,7 +34,7 @@ declare module 'miniprogram-automator' {
     property: (name: string) => Promise<string>;
     value: () => Promise<string>;
     style: (name: string) => Promise<string>;
-    size: () => Promise<{ width: number; height: number }>;
+    size: () => Promise<{ width: string; height: string }>;
     offset: () => Promise<{ left: number; top: number }>;
     tap: () => Promise<void>;
     longpress: () => Promise<void>;
@@ -88,7 +88,8 @@ declare module 'miniprogram-automator' {
     pageScrollTo: (scrollTop: number) => Promise<void>;
     // 传 path 保存文件时返回 undefined，不传返回图片 base64
     screenshot: (options?: { path?: string }) => Promise<string | undefined>;
-    getTicket: () => Promise<string>;
+    // 返回结构依赖 IDE 响应（可能为字符串或 {ticket: ...} 对象），暂不收紧类型，待真机验证
+    getTicket: () => Promise<unknown>;
     setTicket: (ticket: string) => Promise<void>;
     refreshTicket: () => Promise<void>;
     disconnect: () => void;

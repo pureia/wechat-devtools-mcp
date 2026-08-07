@@ -1,7 +1,7 @@
 {
   "name": "@purea/wechat-devtools-mcp",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "packageManager": "pnpm@11.18.0",
   "description": "微信小程序自动化 miniprogram-automator 的本地 MCP 服务器，将 SDK API 封装为 MCP 工具",
   "license": "MIT",

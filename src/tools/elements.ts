@@ -376,18 +376,21 @@ export function registerElementTools(server: McpServer): void {
   server.registerTool(
     'element_touch',
     {
-      description: '触发元素触摸事件（touchstart / touchmove / touchend）',
+      description: '触发元素触摸事件（touchstart / touchmove / touchend；touches 必填且需至少一个触摸点，touchend 的结束触点也放入 touches）',
       inputSchema: {
         element_id: z.string(),
         type: z.enum(['touchstart', 'touchmove', 'touchend']).describe('触摸事件类型'),
-        touches: z.array(z.record(z.string(), z.any())).optional().describe('触摸点信息数组，如 [{identifier, pageX, pageY}]'),
+        touches: z
+          .array(z.record(z.string(), z.any()))
+          .min(1)
+          .describe('触摸点信息数组，必须提供至少一个触摸点，如 [{identifier, pageX, pageY}]'),
         changedTouches: z.array(z.record(z.string(), z.any())).optional().describe('变化的触摸点信息数组'),
       },
     },
     wrap(
-      async ({ element_id, type, touches, changedTouches }: { element_id: string; type: 'touchstart' | 'touchmove' | 'touchend'; touches?: Array<Record<string, unknown>>; changedTouches?: Array<Record<string, unknown>> }) => {
+      async ({ element_id, type, touches, changedTouches }: { element_id: string; type: 'touchstart' | 'touchmove' | 'touchend'; touches: Array<Record<string, unknown>>; changedTouches?: Array<Record<string, unknown>> }) => {
         const el = requireElement(element_id);
-        const options = { touches: touches ?? [], changedTouches: changedTouches ?? [] };
+        const options = { touches, changedTouches: changedTouches ?? [] };
         await el[type](options);
         return { ok: true, message: `已触发 ${type}` };
       }

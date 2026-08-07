@@ -30,6 +30,10 @@ export function fail(err: unknown): CallToolResult {
       code = 'INVALID_ELEMENT';
       hint = '可重新调用 page_query 获取有效句柄';
     }
+    else if (/\.(?:scrollTo|input|callContextMethod|callMethod|swipeTo|moveTo|slideTo) is not a function/.test(message)) {
+      code = 'INVALID_ELEMENT';
+      hint = '元素类型不支持该操作（如 scrollTo 仅 scroll-view、input 仅 input/textarea、callContextMethod 仅 video），请核对元素类型或更换目标元素';
+    }
     else if (/Connection closed|connection is closed/.test(message)) {
       code = 'CONNECTION_LOST';
       hint = '开发者工具可能被关闭或崩溃，请调用 close/disconnect 后重新 launch/connect，或重启 MCP 服务器';

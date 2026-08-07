@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import type { MiniProgram } from 'miniprogram-automator';
 import net from 'node:net';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { sleep } from './utils.js';
 import { McpError } from './errors.js';
+import { cliOptions } from '../config.js';
 import { automator } from './automator.js';
 
 export interface LaunchOptions {
@@ -16,6 +18,15 @@ export interface LaunchOptions {
   account?: string;
   ticket?: string;
   trustProject?: boolean;
+}
+
+// launch 实际占用的自动化端口：供 connect 无参缺省时对齐，
+// 避免 launch 因端口被占而漂移后，connect 仍连原端口造成不一致。
+// 初始值取命令行 --port（未 launch 前 connect 应连用户指定的端口）。
+let lastUsedPort = cliOptions.port ?? 9420;
+
+export function getLastUsedPort(): number {
+  return lastUsedPort;
 }
 
 function isPortFree(port: number): Promise<boolean> {
@@ -66,8 +77,9 @@ export async function discoverProjectPath(): Promise<string | null> {
 
 /**
  * 启动微信开发者工具并连接小程序。
- * 未直接使用 SDK 的 automator.launch：其内部 spawn 中文路径的 .bat 会抛 EINVAL，
- * 这里用 shell:true 重新实现，并绕开其 checkVersion 版本门禁。
+ * 未直接使用 SDK 的 automator.launch：其内部 spawn 中文路径的 .bat 会抛 EINVAL。
+ * Windows 用 cmd.exe /s /c 包装规避该问题；macOS/Linux 直接 spawn 参数数组，
+ * 与 SDK Launcher.launch 行为一致；并绕开其 checkVersion 版本门禁。
  */
 export async function launchMiniProgram(options: LaunchOptions): Promise<MiniProgram> {
   const { projectPath, cliPath, timeout = 30000, port, ticket, account, trustProject } = options;
@@ -76,7 +88,7 @@ export async function launchMiniProgram(options: LaunchOptions): Promise<MiniPro
     throw new McpError(
       'CLI_START_FAILED',
       '未找到微信开发者工具 cli',
-      '请通过 cliPath 指定（Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat）'
+      '请通过 cliPath 指定（Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat；macOS 默认: /Applications/wechatwebdevtools.app/Contents/MacOS/cli）'
     );
   }
   const freePort = await findFreePort(port ?? 9420);
@@ -86,19 +98,27 @@ export async function launchMiniProgram(options: LaunchOptions): Promise<MiniPro
   if (ticket) args.push('--ticket', ticket);
   if (trustProject) args.push('--trust-project');
 
+  let child: ChildProcess | null = null;
   let spawnError: Error | null = null;
   let exited = false;
   try {
-    // 中文路径的 .bat 直接 spawn 会 EINVAL；shell:true 则会把含空格路径拆坏（如默认安装路径）。
-    // 故显式走 cmd.exe：cmd /s /c 会剥离首尾引号并保留内层引号，
-    // windowsVerbatimArguments 让 Node 原样传参（不做二次转义），
-    // 所有参数一律加引号，含空格路径即可安全传递。
-    const quote = (s: string) => `"${s}"`;
-    const cmdLine = `"${[resolvedCli, ...args].map(quote).join(' ')}"`;
-    const child = spawn('cmd.exe', ['/d', '/s', '/c', cmdLine], {
-      stdio: 'ignore',
-      windowsVerbatimArguments: true,
-    });
+    if (process.platform === 'win32') {
+      // Windows 中文路径的 .bat 直接 spawn 会 EINVAL；shell:true 则会把含空格路径拆坏（如默认安装路径）。
+      // 故显式走 cmd.exe：cmd /s /c 会剥离首尾引号并保留内层引号，
+      // windowsVerbatimArguments 让 Node 原样传参（不做二次转义），
+      // 所有参数一律加引号，含空格路径即可安全传递。
+      const quote = (s: string) => `"${s}"`;
+      const cmdLine = `"${[resolvedCli, ...args].map(quote).join(' ')}"`;
+      child = spawn('cmd.exe', ['/d', '/s', '/c', cmdLine], {
+        stdio: 'ignore',
+        windowsVerbatimArguments: true,
+      });
+    }
+    else {
+      // macOS/Linux：cli 为 Unix 可执行文件，直接 spawn 参数数组即可，
+      // 与 SDK 原生 Launcher.launch 行为一致，无需 shell 包装。
+      child = spawn(resolvedCli, args, { stdio: 'ignore' });
+    }
     child.on('error', (err) => {
       spawnError = err;
     });
@@ -115,29 +135,48 @@ export async function launchMiniProgram(options: LaunchOptions): Promise<MiniPro
     spawnError = err instanceof Error ? err : new Error(String(err));
   }
 
-  const deadline = Date.now() + timeout;
-  let mp: MiniProgram | null = null;
-  while (Date.now() < deadline) {
-    if (spawnError) {
-      throw new McpError('CLI_START_FAILED', `启动微信开发者工具失败: ${spawnError.message}`, '请检查 cliPath 是否正确');
-    }
-    try {
-      mp = await automator.connect({ wsEndpoint: `ws://127.0.0.1:${freePort}` });
-      break;
-    }
-    catch {
-      if (exited) {
-        throw new McpError(
-          'CLI_START_FAILED',
-          '启动微信开发者工具失败：cli 已退出但自动化端口未开启',
-          '请确认开发者工具「设置->安全设置->服务端口」已开启'
-        );
+  try {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (spawnError) {
+        throw new McpError('CLI_START_FAILED', `启动微信开发者工具失败: ${spawnError.message}`, '请检查 cliPath 是否正确');
       }
-      await sleep(1000);
+      try {
+        const mp = await automator.connect({ wsEndpoint: `ws://127.0.0.1:${freePort}` });
+        // 仅在连接成功后记录实际占用端口，失败时不污染后续无参 connect 的缺省值
+        lastUsedPort = freePort;
+        return mp;
+      }
+      catch {
+        if (exited) {
+          throw new McpError(
+            'CLI_START_FAILED',
+            '启动微信开发者工具失败：cli 已退出但自动化端口未开启',
+            '请确认开发者工具「设置->安全设置->服务端口」已开启'
+          );
+        }
+        await sleep(1000);
+      }
     }
-  }
-  if (!mp) {
     throw new McpError('TIMEOUT', `连接微信开发者工具超时(${timeout}ms)`, '请确认 cliPath 正确且「服务端口」已开启');
   }
-  return mp;
+  catch (err) {
+    // 失败（超时/启动失败）时尽力清理 cli 子进程，避免孤儿进程持续占用端口；
+    // Windows 上 cmd.exe 只是包装进程，child.kill() 无法级联终止真正的 cli 进程树，
+    // 故改用 taskkill /T /F 按进程树终止；成功路径已在上面 return，不会走到这里。
+    if (child && !child.killed) {
+      try {
+        if (process.platform === 'win32' && child.pid) {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+        }
+        else {
+          child.kill();
+        }
+      }
+      catch {
+        /* 进程已退出则忽略 */
+      }
+    }
+    throw err;
+  }
 }

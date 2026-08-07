@@ -6,7 +6,7 @@ import { McpError } from '../wechat/errors.js';
 import { automator } from '../wechat/automator.js';
 import { SERVER_VERSION } from '../wechat/version.js';
 import { safeCurrentPage, wrap } from '../wechat/utils.js';
-import { discoverProjectPath, launchMiniProgram } from '../wechat/launcher.js';
+import { discoverProjectPath, getLastUsedPort, launchMiniProgram } from '../wechat/launcher.js';
 import {
   clearHandles,
   getMiniProgram,
@@ -44,7 +44,7 @@ export function registerLifecycleTools(server: McpServer): void {
         cliPath: z
           .string()
           .optional()
-          .describe('微信开发者工具 cli 绝对路径，缺省时自动探测默认安装位置，Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat'),
+          .describe('微信开发者工具 cli 绝对路径，缺省时自动探测默认安装位置，Windows 默认: C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat；macOS 默认: /Applications/wechatwebdevtools.app/Contents/MacOS/cli'),
         timeout: z.number().int().positive().optional().describe('启动最长等待时间(ms)，默认 30000'),
         port: z.number().int().positive().optional().describe('自动化 WebSocket 端口号'),
         account: z.string().optional().describe('用户 openid，用于多账号调试'),
@@ -59,22 +59,23 @@ export function registerLifecycleTools(server: McpServer): void {
       if (hasMiniProgram() || isConnecting()) {
         throw new Error('已存在连接，请先调用 close 或 disconnect 后再 launch');
       }
-      // 参数优先级：工具参数 > 命令行参数 > 自动探测
-      let { projectPath } = args;
-      if (!projectPath) {
-        const discovered = cliOptions.projectPath || (await discoverProjectPath());
-        if (!discovered) {
-          throw new McpError(
-            'INVALID_PROJECT',
-            '未提供 projectPath 且自动探测失败',
-            '请传入 projectPath 指向编译产物（uni-app: unpackage/dist/build/mp-weixin；原生小程序: 含 project.config.json 的目录）'
-          );
-        }
-        projectPath = discovered;
-      }
+      // 在首个 await 之前置 connecting，避免两个并发 launch 都穿透上面的守卫
       setConnecting(true);
       let mp: MiniProgram | null = null;
       try {
+        // 参数优先级：工具参数 > 命令行参数 > 自动探测
+        let { projectPath } = args;
+        if (!projectPath) {
+          const discovered = cliOptions.projectPath || (await discoverProjectPath());
+          if (!discovered) {
+            throw new McpError(
+              'INVALID_PROJECT',
+              '未提供 projectPath 且自动探测失败',
+              '请传入 projectPath 指向编译产物（uni-app: unpackage/dist/build/mp-weixin；原生小程序: 含 project.config.json 的目录）'
+            );
+          }
+          projectPath = discovered;
+        }
         const launchArgs = {
           ...cliOptions,
           projectPath,
@@ -112,12 +113,12 @@ export function registerLifecycleTools(server: McpServer): void {
   server.registerTool(
     'connect',
     {
-      description: '连接到已在微信开发者工具中运行的小程序（缺省连接本机 --port 端口）',
+      description: '连接到已在微信开发者工具中运行的小程序（缺省连接最近一次 launch 实际占用的端口，初始为 --port 或 9420）',
       inputSchema: {
         wsEndpoint: z
           .string()
           .optional()
-          .describe('开发者工具自动化 WebSocket 地址（如 ws://127.0.0.1:9420），缺省时使用 --port 指定的端口'),
+          .describe('微信开发者工具自动化 WebSocket 地址（如 ws://127.0.0.1:9420），缺省时使用最近一次 launch 实际占用的端口（初始为 --port 或 9420）'),
       },
     },
     wrap(async ({ wsEndpoint }: { wsEndpoint?: string }) => {
@@ -127,7 +128,8 @@ export function registerLifecycleTools(server: McpServer): void {
       setConnecting(true);
       let mp: MiniProgram | null = null;
       try {
-        const endpoint = wsEndpoint ?? `ws://127.0.0.1:${cliOptions.port ?? 9420}`;
+        // 缺省对齐 launch 实际占用的端口（初始为 --port ?? 9420），避免端口漂移后连错
+        const endpoint = wsEndpoint ?? `ws://127.0.0.1:${getLastUsedPort()}`;
         mp = await automator.connect({ wsEndpoint: endpoint });
         registerEventHandlers(mp);
         const page = await safeCurrentPage(mp);
