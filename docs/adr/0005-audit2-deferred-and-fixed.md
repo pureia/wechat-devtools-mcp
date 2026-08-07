@@ -22,13 +22,42 @@
 
 ### 修复项（已实现）
 
-1. **`fail()` 错误归类补 `data` / `setData`**：`element_data` / `element_set_data` 在非自定义组件元素上
-   抛 `el.data is not a function` / `el.setData is not a function`，此前不命中正则落为 UNKNOWN；
-   现与 ADR-0004 #7 例外列表对齐，追加两方法名，归类为 INVALID_ELEMENT。
-   经 code-review 复核：无现实误报路径（Page 恒有 data/setData；`getData is not a function` 前无点号不匹配）。
-2. **ambient d.ts 返回类型修正**：`Page.size` / `Element.size` 改为 `Promise<{ width: string; height: string }>`，
+1. **ambient d.ts 返回类型修正**：`Page.size` / `Element.size` 改为 `Promise<{ width: string; height: string }>`，
    `Page.scrollTop` 改为 `Promise<string | string[]>`，与 SDK 实际运行时（offsetWidth/offsetHeight 为字符串）
    及官方 0.12.1 类型一致。工具层直通 JSON 序列化、无数值运算，纯类型对齐，零行为变化。
+
+### 未采用的候选修复（发布 v0.0.3 前回退）
+
+2. **`fail()` 错误归类补 `data` / `setData`**：grilling 曾确认补齐该两项方法名（归类 INVALID_ELEMENT），
+   但发布前依据代码审查意见回退，`element_data` / `element_set_data` 在非自定义组件元素上仍落 UNKNOWN。
+   审查意见（minor，另一会话）：`data` / `setData` 是 element/page 通用方法名，补齐可能把
+   **非元素类型错误的 SDK 内部异常**误归为 INVALID_ELEMENT（如 `evaluate` / `page_call_method`
+   用户代码或 SDK 内部抛出的 `X.data is not a function`）。验证结论：1/2 验证者通过，另一验证者
+   判为可接受回退 → 最终回退，保持 UNKNOWN 现状，避免扩大启发式误标面。
+   本仓库代码（v0.0.3 发布内容）不含该正则项，此条与代码一致。
+
+### 回退项实机验证（2026-08-07）
+
+对回退后的实际行为做实机验证（v0.0.3 发布内容 = 本地构建，开发者工具 Stable v2.01.2510290，
+bench 页普通 `view` 元素，非自定义组件）：
+
+| 调用 | 返回 |
+|---|---|
+| `element_data`（普通 view） | `error_code: UNKNOWN`，message: `requireElement(...).data is not a function`，hint 空 |
+| `element_set_data`（普通 view） | `error_code: UNKNOWN`，message: `requireElement(...).setData is not a function`，hint 空 |
+
+**结论：回退可接受，无功能性 bug。**
+- 错误正常以 `isError` 返回，message 自解释（`.data is not a function` 直接点明"元素不支持该操作"），
+  LLM 可据此更换目标元素；代价仅为 error_code 不精细（UNKNOWN 而非 INVALID_ELEMENT）+ hint 为空。
+- 顺带证实：错误 message 格式为 `requireElement(...).data is not a function`，`\.data is not a function`
+  子串可被原正则命中——即若加回 `data|setData`，对普通 view 的归类为**正确**的 INVALID_ELEMENT；
+  误标风险仅存在于 `evaluate` / `page_call_method` 用户代码抛同名错误的场景。两个方向均成立，
+  回退取"宁可不精细、不误标"，与审查 minor 判断一致。
+
+**可选改进方案（未实施）**：若后续想兼顾提示友好又不扩大正则误标面——
+不改正则方法名列表，仅对"message 匹配 `is not a function` 且 error_code 仍为 UNKNOWN"的场合
+补一条通用 hint（如"目标元素不支持该方法，请核对元素类型"）。该方案不引入 `data`/`setData`
+的误标风险，可在未来版本按需实施。
 
 ### 接受的边界（不修复）
 
@@ -52,6 +81,7 @@
 
 ## 后果
 
-- `element_data` / `element_set_data` 的失败提示从「未知错误」变为可操作的 INVALID_ELEMENT。
 - 类型声明与 SDK 运行时一致，杜绝 d.ts "撒谎"误导后续开发。
+- `element_data` / `element_set_data` 的非自定义组件失败提示保持 UNKNOWN（候选修复未采用，
+  2026-08-07 实机验证可接受，见"回退项实机验证"）。
 - 悬置项在真机验证前保持现状，避免基于猜测改动。
