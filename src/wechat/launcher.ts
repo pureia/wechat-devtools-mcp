@@ -9,6 +9,7 @@ import { sleep } from './utils.js';
 import { McpError } from './errors.js';
 import { cliOptions } from '../config.js';
 import { automator } from './automator.js';
+import { setWsEndpoint } from './session.js';
 
 export interface LaunchOptions {
   projectPath: string;
@@ -143,8 +144,9 @@ export async function launchMiniProgram(options: LaunchOptions): Promise<MiniPro
       }
       try {
         const mp = await automator.connect({ wsEndpoint: `ws://127.0.0.1:${freePort}` });
-        // 仅在连接成功后记录实际占用端口，失败时不污染后续无参 connect 的缺省值
+        // 仅在连接成功后记录实际占用端口与地址，失败时不污染后续无参 connect 的缺省值
         lastUsedPort = freePort;
+        setWsEndpoint(`ws://127.0.0.1:${freePort}`);
         return mp;
       }
       catch {

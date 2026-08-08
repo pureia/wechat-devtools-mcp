@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Page } from 'miniprogram-automator';
 import { z } from 'zod';
+import type { PageHandle } from '../types.js';
 import { wrap } from '../wechat/utils.js';
 import {
   clearEventLogs,
@@ -8,6 +10,31 @@ import {
   registerPage,
   requireMiniProgram,
 } from '../wechat/session.js';
+
+// ---------------- 页面路由辅助 ----------------
+
+/**
+ * 规范化页面路径：微信小程序路由（navigateTo 等）要求绝对路径以 / 开头，
+ * 不带 / 的输入会被微信按"相对当前页面"解析导致路径拼接错误（如 bench/pages/user/...）。
+ * 这里统一补上前导 /，对已带 / 的输入原样返回。
+ */
+function normalizePageUrl(url: string): string {
+  return url.startsWith('/') ? url : `/${url}`;
+}
+
+/** 路由工具统一出口：注册页面句柄，并比对跳转后实际页面与目标路径（业务页 onLoad 立即返回/拦截时二者不一致） */
+function routeResult(page: Page | undefined, targetUrl: string): PageHandle & { message?: string } {
+  // registerPage 内部处理 undefined（跳转失败时抛 INVALID_PAGE 并给出提示）
+  const handle = registerPage(page);
+  const targetPath = targetUrl.split('?')[0]?.replace(/^\//, '') ?? '';
+  if (handle.path !== targetPath) {
+    return {
+      ...handle,
+      message: `目标页面 ${targetUrl} 跳转后当前页面为 ${handle.path}（目标页面可能被业务逻辑拦截，或进入后立即返回，如已登录访问登录页）`,
+    };
+  }
+  return handle;
+}
 
 // ---------------- 网络请求监控（逻辑层 hook wx.request） ----------------
 // 注入 AppService 执行的函数必须自包含（evaluate 序列化执行，不能引用外部闭包），
@@ -112,15 +139,16 @@ export function registerMiniProgramTools(server: McpServer): void {
   server.registerTool(
     'navigate_to',
     {
-      description: '跳转到应用内非 tabBar 页面',
+      description: '跳转到应用内非 tabBar 页面（url 缺省 / 前缀时自动补齐，如 pages/xxx/index 与 /pages/xxx/index 等价）',
       inputSchema: {
         url: z.string().describe('需要跳转的应用内非 tabBar 页面路径，如 /pages/xxx/index'),
       },
     },
     wrap(async ({ url }: { url: string }) => {
       const mp = requireMiniProgram();
-      const page = await mp.navigateTo(url);
-      return registerPage(page);
+      const target = normalizePageUrl(url);
+      const page = await mp.navigateTo(target);
+      return routeResult(page, target);
     })
   );
 
@@ -134,8 +162,9 @@ export function registerMiniProgramTools(server: McpServer): void {
     },
     wrap(async ({ url }: { url: string }) => {
       const mp = requireMiniProgram();
-      const page = await mp.redirectTo(url);
-      return registerPage(page);
+      const target = normalizePageUrl(url);
+      const page = await mp.redirectTo(target);
+      return routeResult(page, target);
     })
   );
 
@@ -159,23 +188,25 @@ export function registerMiniProgramTools(server: McpServer): void {
     },
     wrap(async ({ url }: { url: string }) => {
       const mp = requireMiniProgram();
-      const page = await mp.reLaunch(url);
-      return registerPage(page);
+      const target = normalizePageUrl(url);
+      const page = await mp.reLaunch(target);
+      return routeResult(page, target);
     })
   );
 
   server.registerTool(
     'switch_tab',
     {
-      description: '切换到 tabBar 页面（url 需以 / 开头）',
+      description: '切换到 tabBar 页面（url 缺省 / 前缀时自动补齐）',
       inputSchema: {
-        url: z.string().describe('需要跳转的 tabBar 页面路径'),
+        url: z.string().describe('需要跳转的 tabBar 页面路径，如 pages/main/views/bench/index'),
       },
     },
     wrap(async ({ url }: { url: string }) => {
       const mp = requireMiniProgram();
-      const page = await mp.switchTab(url);
-      return registerPage(page);
+      const target = normalizePageUrl(url);
+      const page = await mp.switchTab(target);
+      return routeResult(page, target);
     })
   );
 

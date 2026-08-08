@@ -33,8 +33,17 @@ export function classifyError(message: string): { code: string; hint: string } {
   if (/已存在连接/.test(message)) {
     return { code: 'INVALID_STATE', hint: '请先调用 close 或 disconnect 释放当前连接，再执行 launch / connect' };
   }
-  if (/\.(?:scrollTo|input|callContextMethod|callMethod|swipeTo|moveTo|slideTo) is not a function/.test(message)) {
-    return { code: 'INVALID_ELEMENT', hint: '元素类型不支持该操作（如 scrollTo 仅 scroll-view、input 仅 input/textarea、callContextMethod 仅 video），请核对元素类型或更换目标元素' };
+  if (/\.(?:scrollTo|input|callContextMethod|callMethod|swipeTo|moveTo|slideTo|scrollWidth|scrollHeight|data|setData) is not a function/.test(message)) {
+    return {
+      code: 'INVALID_ELEMENT',
+      hint: '元素类型不支持该操作（scrollTo/scrollWidth/scrollHeight 仅 scroll-view、data/setData/callMethod 仅自定义组件、input 仅 input/textarea、callContextMethod 仅 video），请核对元素类型或更换目标元素',
+    };
+  }
+  if (/\.(?:value|class|data|text|src|id|name|type|style|width|height) not exists$/.test(message)) {
+    return {
+      code: 'INVALID_ELEMENT',
+      hint: '元素属性/值不存在：property/value 仅对表单组件（如 input 的 value）有效，普通元素的 class 请改用 element_attribute',
+    };
   }
   if (/Failed connecting to/.test(message)) {
     return { code: 'CONNECTION_LOST', hint: '请确认开发者工具项目窗口已打开且「设置->安全设置->服务端口」已开启，或检查 wsEndpoint 端口是否正确' };
@@ -47,6 +56,12 @@ export function classifyError(message: string): { code: string; hint: string } {
   }
   if (/超时/.test(message)) {
     return { code: 'TIMEOUT', hint: '请检查前置条件是否满足（小程序已编译运行、元素存在等），或增大 timeout 参数' };
+  }
+  if (/ticket is not allow to get|not allow to refresh ticket/.test(message)) {
+    return {
+      code: 'TICKET_DISABLED',
+      hint: '开发者工具未开放票据能力：请在「设置->安全设置」中开启服务端口/自动化调试相关权限后重试',
+    };
   }
   return { code: 'UNKNOWN', hint: '' };
 }
@@ -62,7 +77,7 @@ export function fail(err: unknown): CallToolResult {
   };
 }
 
-/** 统一包装：连接态校验 + 执行 + 错误转 MCP 错误结果 */
+/** 统一包装：连接态校验 + 执行 + 错误转 MCP 错误结果；连接意外断开（CONNECTION_LOST）时自动重连一次并重试 */
 export function wrap<TArgs>(
   fn: (args: TArgs) => Promise<unknown>
 ): (args: TArgs) => Promise<CallToolResult> {
@@ -71,6 +86,25 @@ export function wrap<TArgs>(
       return ok(await fn(args));
     }
     catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const { code } = (err ?? {}) as { code?: string };
+      if ((code ?? classifyError(message).code) === 'CONNECTION_LOST') {
+        try {
+          // 动态导入避免测试脚本（jiti 转译）静态加载链触碰 session → automator → version 的 require
+          const { reconnectOnce } = await import('./session.js');
+          if (await reconnectOnce()) {
+            try {
+              return ok(await fn(args));
+            }
+            catch (retryErr) {
+              return fail(retryErr);
+            }
+          }
+        }
+        catch {
+          /* 重连流程自身异常则返回原始错误 */
+        }
+      }
       return fail(err);
     }
   };

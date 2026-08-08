@@ -23,6 +23,18 @@ const cases = [
   ['element_id 无效或已失效: el_1', 'INVALID_ELEMENT'],
   ['requireElement(...).scrollTo is not a function', 'INVALID_ELEMENT'],
   ['requireElement(...).input is not a function', 'INVALID_ELEMENT'],
+  // 新增：元素类型不支持的其余操作（scrollWidth/scrollHeight 仅 scroll-view，data/setData 仅自定义组件）
+  ['I(...).scrollWidth is not a function', 'INVALID_ELEMENT'],
+  ['I(...).scrollHeight is not a function', 'INVALID_ELEMENT'],
+  ['I(...).data is not a function', 'INVALID_ELEMENT'],
+  ['I(...).setData is not a function', 'INVALID_ELEMENT'],
+  // 新增：property/value 在无该属性的元素上（如普通 view 无 value）
+  ['view.value not exists', 'INVALID_ELEMENT'],
+  ['view.class not exists', 'INVALID_ELEMENT'],
+  // 新增：开发者工具未开放票据能力
+  ['ticket is not allow to get, navigate to security settings and turn it on', 'TICKET_DISABLED'],
+  ['current login type is not allow to refresh ticket', 'TICKET_DISABLED'],
+  // 回归：其余分类
   ['Connection closed, check if wechat web devTools is still running', 'CONNECTION_LOST'],
   ['启动微信开发者工具失败: 未找到微信开发者工具 cli', 'CLI_START_FAILED'],
   ['连接微信开发者工具超时(30000ms)', 'TIMEOUT'],

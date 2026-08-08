@@ -1,9 +1,12 @@
 import type { ConsoleMessage, Element, ExceptionMessage, MiniProgram, Page } from 'miniprogram-automator';
 import type { ConsoleLogEntry, ElementHandle, ExceptionEntry, PageHandle } from '../types.js';
+import { automator } from './automator.js';
 import { ERROR_CODES, McpError } from './errors.js';
 
 let miniProgram: MiniProgram | null = null;
 let connecting = false;
+// 最近一次成功建立连接的 WebSocket 地址：供连接意外断开时自动重连使用
+let wsEndpoint: string | null = null;
 const pages = new Map<string, Page>();
 const elements = new Map<string, Element>();
 let pageSeq = 0;
@@ -46,6 +49,34 @@ export function requireMiniProgram(): MiniProgram {
     throw new McpError('NOT_CONNECTED', ERROR_CODES.NOT_CONNECTED, '请先调用 launch 或 connect 建立连接');
   }
   return miniProgram;
+}
+
+export function setWsEndpoint(endpoint: string | null): void {
+  wsEndpoint = endpoint;
+}
+
+export function getWsEndpoint(): string | null {
+  return wsEndpoint;
+}
+
+/**
+ * 连接意外断开（CONNECTION_LOST）时尝试重连一次：
+ * 用最近一次成功连接的地址重新 connect，成功则替换全局连接并重新挂上事件监听。
+ * 仅在存在连接且地址已知时尝试；重连失败（如开发者工具被关闭）返回 false，由调用方决定兜底。
+ */
+export async function reconnectOnce(): Promise<boolean> {
+  if (!miniProgram || !wsEndpoint) return false;
+  try {
+    const mp = await automator.connect({ wsEndpoint });
+    setMiniProgram(mp);
+    registerEventHandlers(mp);
+    // 旧连接下注册的 page/element 句柄均已失效，重连后清空，避免重试时取到死句柄
+    clearHandles('all');
+    return true;
+  }
+  catch {
+    return false;
+  }
 }
 
 export function requirePage(pageId: string): Page {
@@ -113,6 +144,7 @@ export function registerEventHandlers(mp: MiniProgram): void {
 
 export function resetSession(): void {
   miniProgram = null;
+  wsEndpoint = null;
   pages.clear();
   elements.clear();
   pageSeq = 0;

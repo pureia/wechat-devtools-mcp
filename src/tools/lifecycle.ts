@@ -18,6 +18,7 @@ import {
   resetSession,
   setConnecting,
   setMiniProgram,
+  setWsEndpoint,
 } from '../wechat/session.js';
 
 interface LaunchArgs {
@@ -135,6 +136,7 @@ export function registerLifecycleTools(server: McpServer): void {
         const page = await safeCurrentPage(mp);
         // 确认连接可用后才置为全局连接，避免 safeCurrentPage 失败时残留脏状态
         setMiniProgram(mp);
+        setWsEndpoint(endpoint);
         return { ok: true, message: '连接成功', current_page: registerPage(page) };
       }
       catch (err) {
