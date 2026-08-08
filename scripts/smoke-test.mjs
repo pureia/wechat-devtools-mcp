@@ -92,8 +92,8 @@ try {
   console.info('tools/call(status,未连接):', 'OK', JSON.stringify(statusResult.content?.[0]?.text));
 
   const callText = callResult.content?.[0]?.text ?? '';
-  // 生命周期 6 + 小程序级 20 + 页面级 12 + 元素级 26 = 64
-  const EXPECTED_TOOL_COUNT = 64;
+  // 生命周期 6 + 小程序级 23 + 页面级 12 + 元素级 26 = 67
+  const EXPECTED_TOOL_COUNT = 67;
   if (toolNames.length !== EXPECTED_TOOL_COUNT || ping === undefined || !callText.includes('句柄已清理')) {
     console.error(`FAIL: 工具数量不符（期望 ${EXPECTED_TOOL_COUNT}，实际 ${toolNames.length}）、ping 异常或 tools/call 调用失败`);
     process.exit(1);

@@ -9,6 +9,94 @@ import {
   requireMiniProgram,
 } from '../wechat/session.js';
 
+// ---------------- 网络请求监控（逻辑层 hook wx.request） ----------------
+// 注入 AppService 执行的函数必须自包含（evaluate 序列化执行，不能引用外部闭包），
+// 且返回对象需 JSON 可序列化。hook 只透传不改参数，对业务无影响；日志存逻辑层全局，跨页面存活。
+
+/** 安装 wx.request 透传拦截器（幂等，hook 被 mock/restore 顶掉时自动重装）：记录 url/method/header/data/statusCode/响应/耗时，上限 500 条；data/response 写入时截断到 2000 字符 */
+const NETWORK_HOOK_FN = `function () {
+  var g = globalThis;
+  if (g.__mcpNetHookInstalled) {
+    if (g.__mcpNetHook && g.wx && g.wx.request === g.__mcpNetHook) return { installed: true, already: true };
+    g.__mcpNetHookInstalled = false; // hook 已被 mock/restore 或业务替换顶掉，允许重装
+  }
+  if (!g.wx || typeof g.wx.request !== 'function') return { installed: false, reason: 'wx.request 不可用' };
+  var log = g.__mcpNetLog || (g.__mcpNetLog = []);
+  var MAX = 500;
+  var orig = g.wx.request;
+  g.__mcpNetHook = orig;
+  var trunc = function (v) {
+    var s;
+    try { s = typeof v === 'string' ? v : JSON.stringify(v); } catch (e) { return String(v); }
+    if (s && s.length > 2000) return s.slice(0, 2000) + '…[截断]';
+    return v;
+  };
+  g.wx.request = function (options) {
+    if (!options || typeof options !== 'object') return orig(options);
+    // 浅拷贝后替换回调，避免污染调用方 options 对象（复用同一 options 的多次请求均可记录）
+    var opts = {};
+    for (var k in options) opts[k] = options[k];
+    var rec = { url: opts.url, method: opts.method || 'GET', header: opts.header, data: trunc(opts.data), ts: Date.now() };
+    var done = false;
+    var commit = function (extra) {
+      if (done) return;
+      done = true;
+      rec.duration = Date.now() - rec.ts;
+      for (var ek in extra) rec[ek] = extra[ek];
+      log.push(rec);
+      if (log.length > MAX) log.shift();
+    };
+    opts.success = function (res) {
+      try { commit({ ok: true, statusCode: res.statusCode, response: trunc(res.data) }); } catch (e) { }
+      if (options.success) options.success(res);
+    };
+    opts.fail = function (err) {
+      try { commit({ ok: false, errMsg: err.errMsg }); } catch (e) { }
+      if (options.fail) options.fail(err);
+    };
+    opts.complete = function (res) {
+      try { commit({ ok: true }); } catch (e) { }
+      if (options.complete) options.complete(res);
+    };
+    return orig(opts);
+  };
+  g.__mcpNetHookInstalled = true;
+  return { installed: true };
+}`;
+
+/** 读取日志：按 url 子串过滤 + 条数限制，倒序返回最新条目；response/data/header 等大字段截断到 2000 字符 */
+const NETWORK_READ_FN = `function (filter, limit) {
+  var log = globalThis.__mcpNetLog || [];
+  var out = [];
+  var cap = limit || 50;
+  function trunc(v) {
+    var s;
+    try { s = typeof v === 'string' ? v : JSON.stringify(v); } catch (e) { return String(v); }
+    if (s && s.length > 2000) return s.slice(0, 2000) + '…[截断]';
+    return v;
+  }
+  for (var i = log.length - 1; i >= 0; i--) {
+    var r = log[i];
+    if (filter && r.url && r.url.indexOf(filter) < 0) continue;
+    var item = { url: r.url, method: r.method, ts: r.ts, duration: r.duration };
+    if (r.ok !== undefined) item.ok = r.ok;
+    if (r.statusCode !== undefined) item.statusCode = r.statusCode;
+    if (r.errMsg !== undefined) item.errMsg = r.errMsg;
+    if (r.header !== undefined) item.header = trunc(r.header);
+    if (r.data !== undefined) item.data = trunc(r.data);
+    if (r.response !== undefined) item.response = trunc(r.response);
+    out.push(item);
+    if (out.length >= cap) break;
+  }
+  return out;
+}`;
+
+/** 清空日志（不卸载拦截器） */
+const NETWORK_CLEAR_FN = `function () {
+  globalThis.__mcpNetLog = [];
+  return { cleared: true };
+}`;
+
 export function registerMiniProgramTools(server: McpServer): void {
   // ---------------- 小程序级操作 ----------------
   server.registerTool(
@@ -170,6 +258,43 @@ export function registerMiniProgramTools(server: McpServer): void {
     wrap(async ({ code, args }: { code: string; args?: unknown[] }) => {
       const mp = requireMiniProgram();
       return { result: await mp.evaluate(code, ...(args ?? [])) };
+    })
+  );
+
+  server.registerTool(
+    'network_start',
+    {
+      description: '在 AppService 中给 wx.request 挂上透传拦截器，开始记录网络请求（幂等；只捕获安装后的请求，上限 500 条，跨页面存活；拦截器不改请求参数，对业务无影响）',
+    },
+    wrap(async () => {
+      const mp = requireMiniProgram();
+      return { result: await mp.evaluate(NETWORK_HOOK_FN) };
+    })
+  );
+
+  server.registerTool(
+    'network_log',
+    {
+      description: '获取已记录的 wx.request 请求日志（按时间倒序返回最新的 limit 条；大字段如响应体自动截断到 2000 字符；未调用 network_start 时返回空数组）',
+      inputSchema: {
+        filter: z.string().optional().describe('按 url 包含匹配过滤'),
+        limit: z.number().int().min(1).max(100).optional().describe('最多返回条数，默认 50'),
+      },
+    },
+    wrap(async ({ filter, limit }: { filter?: string; limit?: number }) => {
+      const mp = requireMiniProgram();
+      return { requests: await mp.evaluate(NETWORK_READ_FN, filter ?? '', limit ?? 50) };
+    })
+  );
+
+  server.registerTool(
+    'network_clear',
+    {
+      description: '清空已记录的 wx.request 网络请求日志（不卸载拦截器，后续请求仍会继续记录）',
+    },
+    wrap(async () => {
+      const mp = requireMiniProgram();
+      return { result: await mp.evaluate(NETWORK_CLEAR_FN) };
     })
   );
 

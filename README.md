@@ -59,7 +59,7 @@
 ## 提供的能力
 
 - 连接 / 生命周期：`launch` / `connect` / `status` / `disconnect` / `close` / `release_handles`
-- 小程序级操作：`page_stack` / `navigate_to` / `redirect_to` / `navigate_back` / `re_launch` / `switch_tab` / `current_page` / `system_info` / `evaluate` / `page_scroll_to` / `screenshot` / 票据（`get_ticket` / `set_ticket` / `refresh_ticket`）/ wx 方法（`call_wx_method` / `mock_wx_method` / `restore_wx_method`）
+- 小程序级操作：`page_stack` / `navigate_to` / `redirect_to` / `navigate_back` / `re_launch` / `switch_tab` / `current_page` / `system_info` / `evaluate` / `page_scroll_to` / `screenshot` / 票据（`get_ticket` / `set_ticket` / `refresh_ticket`）/ wx 方法（`call_wx_method` / `mock_wx_method` / `restore_wx_method`）/ 网络监控（`network_start` / `network_log` / `network_clear`）
 - 页面级操作：`page_query` / `page_query_all` / `page_query_xpath` / `page_query_xpath_all` / `page_tree` / `page_query_by_text` / `page_call_method` / `page_wait_for` / `page_data` / `page_set_data` / `page_size` / `page_scroll_top`
 - 元素级操作：`element_query` / `element_tap` / `element_input` / `element_text` / `element_trigger` / `element_info` 等 26 个
 - 运行日志：`console_messages` / `exception_messages` / `clear_event_logs`
