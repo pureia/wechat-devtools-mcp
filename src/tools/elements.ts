@@ -62,7 +62,7 @@ export function registerElementTools(server: McpServer): void {
     },
     wrap(async ({ element_id, name }: { element_id: string; name: string }) => {
       const el = requireElement(element_id);
-      return { value: await el.attribute(name) };
+      return { value: (await el.attribute(name)) ?? null };
     })
   );
 
@@ -77,7 +77,7 @@ export function registerElementTools(server: McpServer): void {
     },
     wrap(async ({ element_id, name }: { element_id: string; name: string }) => {
       const el = requireElement(element_id);
-      return { value: await el.property(name) };
+      return { value: (await el.property(name)) ?? null };
     })
   );
 
@@ -91,7 +91,7 @@ export function registerElementTools(server: McpServer): void {
     },
     wrap(async ({ element_id }: { element_id: string }) => {
       const el = requireElement(element_id);
-      return { value: await el.value() };
+      return { value: (await el.value()) ?? null };
     })
   );
 
@@ -106,7 +106,7 @@ export function registerElementTools(server: McpServer): void {
     },
     wrap(async ({ element_id, name }: { element_id: string; name: string }) => {
       const el = requireElement(element_id);
-      return { value: await el.style(name) };
+      return { value: (await el.style(name)) ?? null };
     })
   );
 

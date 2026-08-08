@@ -60,3 +60,7 @@ _Avoid_: 面包屑、路径字符串
 **文本查询 (text query)**:
 按文本内容搜索页面元素的能力，由 page_query_by_text 提供（包含匹配、不区分大小写；WXML 快照命中为空时降级逐叶子 innerText 扫描）。
 _Avoid_: 搜索、find
+
+**网络请求监控 (network monitoring)**:
+由 network_start / network_log / network_clear 提供：在 AppService 中给 wx.request 挂透传拦截器，记录安装后的请求（url/method/header/data/statusCode/耗时），上限 500 条，跨页面存活；不覆盖 uploadFile / downloadFile / connectSocket 等其他网络 API，不捕获安装前的请求。
+_Avoid_: 抓包、网络日志

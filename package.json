@@ -25,7 +25,8 @@
     "dev": "tsdown --watch",
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke-test.mjs",
-    "prepublishOnly": "pnpm run typecheck && pnpm run build && pnpm run smoke"
+    "test:classify": "node scripts/classify-check.mjs",
+    "prepublishOnly": "pnpm run typecheck && pnpm run build && pnpm run smoke && pnpm run test:classify"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
