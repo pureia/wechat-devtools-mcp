@@ -6,6 +6,10 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 export function ok(data: unknown): CallToolResult {
   const text = data === undefined ? '' : JSON.stringify(data, null, 2);
   return { content: [{ type: 'text', text }] };

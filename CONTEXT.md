@@ -48,3 +48,15 @@ _Avoid_: 应用、工程
 **Program / Page / Element**:
 automator 暴露的三层能力对象：Program 代表整个小程序运行态，Page 代表单个页面，Element 代表页面内的 UI 元素。
 _Avoid_: 程序/页面/元素混用
+
+**结构树 (structure tree)**:
+page_tree 返回的紧凑页面结构树：节点携带 tag / class / id / 文本摘要 / 节点路径 / 子节点数，叶子节点附屏幕坐标。
+_Avoid_: 快照、accessibility tree
+
+**节点路径 (node path)**:
+从页面内容根起的 XPath 风格索引链（同标签兄弟间 1 基计数，不含 page 包裹节点），如 /view[2]/view[1]；可直接作为 XPath 传给 page_query_xpath。
+_Avoid_: 面包屑、路径字符串
+
+**文本查询 (text query)**:
+按文本内容搜索页面元素的能力，由 page_query_by_text 提供（包含匹配、不区分大小写；WXML 快照命中为空时降级逐叶子 innerText 扫描）。
+_Avoid_: 搜索、find

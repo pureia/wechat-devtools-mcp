@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { wrap } from '../wechat/utils.js';
+import { truncate, wrap } from '../wechat/utils.js';
 import { registerElement, registerElements, requireElement } from '../wechat/session.js';
 
 export function registerElementTools(server: McpServer): void {
@@ -198,6 +198,39 @@ export function registerElementTools(server: McpServer): void {
       const el = requireElement(element_id);
       await el.trigger(type, detail);
       return { ok: true, message: `已触发事件 ${type}` };
+    })
+  );
+
+  server.registerTool(
+    'element_info',
+    {
+      description: '聚合获取元素信息：标签名 / class / id / 文本 / 值 / 屏幕偏移 / 尺寸 / 外层 WXML 摘要（缺失字段自动省略，如非表单元素无 value）',
+      inputSchema: {
+        element_id: z.string(),
+      },
+    },
+    wrap(async ({ element_id }: { element_id: string }) => {
+      const el = requireElement(element_id);
+      const entries: Array<[string, Promise<unknown>]> = [
+        ['class', el.attribute('class')],
+        ['id', el.attribute('id')],
+        ['text', el.text()],
+        ['value', el.value()],
+        ['offset', el.offset()],
+        ['size', el.size()],
+        ['outer_wxml', el.outerWxml().then((s) => truncate(s, 500))],
+      ];
+      const settled = await Promise.allSettled(entries.map(([, p]) => p));
+      const info: Record<string, unknown> = { tag_name: el.tagName };
+      settled.forEach((r, idx) => {
+        // 元素能力缺失（如普通 view 无 value）或值为空时省略该字段，不中断整体结果
+        const key = entries[idx]?.[0];
+        if (key === undefined) return;
+        if (r.status === 'fulfilled' && r.value !== null && r.value !== undefined && r.value !== '') {
+          info[key] = r.value;
+        }
+      });
+      return info;
     })
   );
 

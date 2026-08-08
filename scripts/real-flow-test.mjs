@@ -15,11 +15,13 @@ import { spawn } from 'node:child_process';
 
 const projectPath = process.env.WECHAT_PROJECT_PATH;
 const cliPath = process.env.WECHAT_CLI_PATH;
+// 设置该变量时跳过 launch，直接连接已有自动化端口（避免重复拉起开发者工具/触发 cli 写状态文件）
+const wsEndpoint = process.env.WECHAT_WS_ENDPOINT;
 // 需要打开的应用内页面路径，按被测小程序实际路由修改
 const RELAUNCH_URL = '/pages/main/views/bench/index';
 
-if (!projectPath || !cliPath) {
-  console.error('请先设置环境变量 WECHAT_PROJECT_PATH（编译产物目录）与 WECHAT_CLI_PATH（开发者工具 cli）');
+if (!wsEndpoint && (!projectPath || !cliPath)) {
+  console.error('请先设置环境变量 WECHAT_PROJECT_PATH（编译产物目录）与 WECHAT_CLI_PATH（开发者工具 cli），或仅设置 WECHAT_WS_ENDPOINT 直接连接已有自动化端口');
   process.exit(1);
 }
 
@@ -95,6 +97,28 @@ function text(result) {
 
 const step = (name) => console.info(`\n=== ${name} ===`);
 
+/** 从结构树中找第一个带文本的叶子节点；整棵子树都无文本才返回 null */
+function firstTextLeaf(node) {
+  if (!node) return null;
+  if ((node.children?.length ?? 0) === 0) return node.text ? node : null;
+  for (const c of node.children ?? []) {
+    const r = firstTextLeaf(c);
+    if (r) return r;
+  }
+  return null;
+}
+
+/** 回退：任意第一个叶子（WXML 快照可能无静态文本，由 page_query_by_text 的 innerText fallback 兜底） */
+function firstAnyLeaf(node) {
+  if (!node) return null;
+  if ((node.children?.length ?? 0) === 0) return node;
+  for (const c of node.children ?? []) {
+    const r = firstAnyLeaf(c);
+    if (r) return r;
+  }
+  return null;
+}
+
 try {
   await request('initialize', {
     protocolVersion: '2024-11-05',
@@ -103,22 +127,33 @@ try {
   });
   send({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
-  step('launch 启动并连接开发者工具');
-  const launchRes = await request('tools/call', {
-    name: 'launch',
-    arguments: { projectPath, cliPath, timeout: 90000, trustProject: true },
-  }, 120000);
-  console.info(text(launchRes));
-
-  if (launchRes?.isError) {
-    step('launch 失败，回退 connect 连接已有自动化端口 9420');
+  if (wsEndpoint) {
+    step(`connect 连接已有自动化端口 ${wsEndpoint}`);
     const connectRes = await request('tools/call', {
       name: 'connect',
-      arguments: { wsEndpoint: 'ws://127.0.0.1:9420' },
+      arguments: { wsEndpoint },
     });
     console.info(text(connectRes));
-    if (connectRes?.isError) {
-      throw new Error('launch 与 connect 均失败');
+    if (connectRes?.isError) throw new Error('connect 失败');
+  }
+  else {
+    step('launch 启动并连接开发者工具');
+    const launchRes = await request('tools/call', {
+      name: 'launch',
+      arguments: { projectPath, cliPath, timeout: 90000, trustProject: true },
+    }, 120000);
+    console.info(text(launchRes));
+
+    if (launchRes?.isError) {
+      step('launch 失败，回退 connect 连接已有自动化端口 9420');
+      const connectRes = await request('tools/call', {
+        name: 'connect',
+        arguments: { wsEndpoint: 'ws://127.0.0.1:9420' },
+      });
+      console.info(text(connectRes));
+      if (connectRes?.isError) {
+        throw new Error('launch 与 connect 均失败');
+      }
     }
   }
 
@@ -145,6 +180,38 @@ try {
   });
   const q = text(qRes);
   console.info(q);
+
+  // ---- 定位工具链（page_tree / page_query_by_text / element_info）真机验证 ----
+  step('page_tree 获取页面结构树');
+  const treeRes = await request('tools/call', {
+    name: 'page_tree',
+    arguments: { page_id: pageId },
+  });
+  const tree = text(treeRes);
+  console.info('tree.tag:', tree.tree?.tag, '| tree.path:', tree.tree?.path, '| children:', tree.tree?.children?.length, '| truncated:', tree.truncated);
+
+  const leaf = firstTextLeaf(tree.tree) ?? firstAnyLeaf(tree.tree);
+  if (!leaf) throw new Error('page_tree 未找到叶子节点');
+  console.info('leaf:', JSON.stringify(leaf));
+  const keyword = (leaf.text ?? '').trim().slice(0, 4);
+  if (!keyword) throw new Error('页面叶子均无静态 WXML 文本（可能全为插值绑定），请改用带静态文本的页面验证文本查询');
+
+  step(`page_query_by_text 文本查询 "${keyword}"`);
+  const byTextRes = await request('tools/call', {
+    name: 'page_query_by_text',
+    arguments: { page_id: pageId, text: keyword },
+  });
+  const byText = text(byTextRes);
+  console.info('results count:', byText.results?.length, '| first:', JSON.stringify(byText.results?.[0]));
+  const firstMatch = byText.results?.find((r) => r.element_id);
+  if (!byText.results?.length) throw new Error('文本查询无匹配结果');
+  if (!firstMatch) throw new Error('文本查询全部匹配均未返回句柄（XPath 解析失败，回退为元数据）');
+
+  step('element_info 聚合元素信息');
+  console.info(text(await request('tools/call', {
+    name: 'element_info',
+    arguments: { element_id: firstMatch.element_id },
+  })));
 
   step('page_data 获取页面渲染数据');
   const dRes = await request('tools/call', {
