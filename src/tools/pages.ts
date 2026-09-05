@@ -75,7 +75,7 @@ export function registerPageTools(server: McpServer): void {
   server.registerTool(
     'page_tree',
     {
-      description: '获取页面紧凑结构树：节点带 tag / class / id / 文本摘要 / 节点路径 / 子节点数，叶子节点附屏幕坐标；路径不含 page 包裹节点、可直接作为 XPath 使用；文本来自 WXML 快照，插值（{{}}）绑定的文本可能为空，需按文本检索时用 page_query_by_text；复杂页可用 path 下钻，节点数或深度超限时以 truncated 标记并建议用 path 下钻',
+      description: '获取页面紧凑结构树：节点带 tag / class / id / 文本摘要 / 节点路径 / 子节点数，叶子节点附屏幕坐标；路径不含 page 包裹节点、可直接作为 XPath 使用；文本来自 WXML 快照，插值绑定（双花括号）的文本可能为空，需按文本检索时用 page_query_by_text；复杂页可用 path 下钻，节点数或深度超限时以 truncated 标记并建议用 path 下钻',
       inputSchema: {
         page_id: z.string(),
         path: z.string().optional().describe('下钻子树：与返回的 path 同格式的节点路径（可直接作 XPath），如 /view[1]'),
@@ -415,7 +415,7 @@ function collectTextMatches(node: WxmlNode, query: string, limit: number): TextM
 }
 
 /**
- * WXML 快照的插值（{{}}）文本可能为空（IDE 限制），此时降级为逐叶子读取 innerText 匹配。
+ * WXML 快照的插值绑定（双花括号）文本可能为空（IDE 限制），此时降级为逐叶子读取 innerText 匹配。
  * maxScan 限制扫描叶子数，避免复杂页产生过多 RPC。
  */
 async function collectTextMatchesByInnerText(
